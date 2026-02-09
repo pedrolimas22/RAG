@@ -1,0 +1,24 @@
+Vector Databases and Embeddings
+
+Vector databases are specialized database systems designed to store and query high-dimensional vectors 
+efficiently. In the context of AI and machine learning, these vectors are typically embeddings - 
+numerical representations of data like text, images, or audio.
+
+Embeddings are dense vector representations that capture semantic meaning. For example, word embeddings 
+represent words as vectors in such a way that semantically similar words have similar vector representations. 
+This allows machines to understand that "king" and "queen" are more similar to each other than "king" 
+and "apple".
+
+The process of creating embeddings typically involves training neural networks on large datasets. For text, 
+models like Word2Vec, GloVe, and more recently, transformer-based models create embeddings that capture 
+complex semantic relationships and contextual information.
+
+Vector databases use specialized indexing techniques to enable fast similarity search. Common techniques 
+include:
+- Approximate Nearest Neighbor (ANN) search
+- Hierarchical Navigable Small World (HNSW) graphs
+- Locality-Sensitive Hashing (LSH)
+
+Popular vector databases include Pinecone, Weaviate, Milvus, and Chroma. These systems are essential 
+for building applications like recommendation systems, semantic search engines, and retrieval-augmented 
+generation (RAG) systems.
