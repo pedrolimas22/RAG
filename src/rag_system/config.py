@@ -32,6 +32,12 @@ class RAGConfig:
     # Retrieval configuration
     top_k: int = 2  # REDUCED from 3: Fewer docs = less tokens to LLM
     
+    # Advanced retrieval (optional, improves quality)
+    use_multi_query: bool = False  # Generate multiple query variations
+    use_reranking: bool = False    # Rerank results by relevance
+    num_queries: int = 3           # Number of query variations (if multi_query enabled)
+    retrieval_k: int = 10          # Docs to retrieve before reranking
+    
     # Vector store configuration
     collection_name: str = "rag_documents"
     version: str = "v3"

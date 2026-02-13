@@ -221,6 +221,105 @@ for doc in docs:
 rag.update_config(top_k=10, temperature=0.7)
 ```
 
+## 🚀 Advanced Retrieval (Beta)
+
+Improve answer quality with multi-query retrieval and document reranking!
+
+### Features
+
+**Multi-Query Retrieval**
+- Generates multiple variations of your question
+- Better document coverage and recall
+- Handles ambiguous questions effectively
+- Trade-off: ~3-4x more LLM calls
+
+**Document Reranking**
+- Re-scores retrieved documents by relevance
+- Returns only the most relevant content
+- Higher answer quality and precision
+- Trade-off: 1 LLM call per document retrieved
+
+### Quick Start
+
+**In Code:**
+```python
+config = RAGConfig(
+    use_multi_query=True,   # Enable query variations
+    use_reranking=True,     # Enable reranking
+    num_queries=3,          # Number of query variations (2-5)
+    retrieval_k=10,         # Retrieve more docs for reranking
+    top_k=3                 # Final number after reranking
+)
+
+rag = RAGSystem(config)
+result = rag.query("What is the most expensive transaction?")
+```
+
+**In Web UI:**
+- Check "🔍 Multi-Query Retrieval" box
+- Check "📊 Rerank Results" box
+- Submit your question
+
+**Test It:**
+```bash
+python example_advanced_retrieval.py
+```
+
+### When to Use
+
+✅ **Use Advanced Retrieval When:**
+- Complex or multi-faceted questions
+- Quality is critical (research, analysis)
+- Large document collections
+- Ambiguous queries
+
+❌ **Skip Advanced Retrieval When:**
+- Simple factual lookups
+- Speed is critical
+- High-volume applications
+- Small, high-quality doc sets
+
+### Configuration
+
+```python
+# Multi-query only (good balance)
+config = RAGConfig(
+    use_multi_query=True,
+    use_reranking=False,
+    num_queries=3
+)
+
+# Reranking only (better quality)
+config = RAGConfig(
+    use_multi_query=False,
+    use_reranking=True,
+    retrieval_k=10,
+    top_k=3
+)
+
+# Both (best quality)
+config = RAGConfig(
+    use_multi_query=True,
+    use_reranking=True,
+    num_queries=3,
+    retrieval_k=10,
+    top_k=3
+)
+```
+
+### Performance
+
+| Strategy | Speed | Quality | LLM Calls | Best For |
+|----------|-------|---------|-----------|----------|
+| Basic | ⚡⚡⚡ | ⭐⭐ | 1 | Speed priority |
+| Multi-Query | ⚡⚡ | ⭐⭐⭐ | 4+ | Better coverage |
+| Reranking | ⚡⚡ | ⭐⭐⭐ | 11+ | Better quality |
+| Both | ⚡ | ⭐⭐⭐⭐ | 15+ | Best quality |
+
+**💡 Tip:** Use with local LLM to reduce API costs when using advanced features!
+
+See [docs/ADVANCED_RETRIEVAL.md](docs/ADVANCED_RETRIEVAL.md) for detailed documentation.
+
 ## 🧪 Development
 
 ### Running Tests

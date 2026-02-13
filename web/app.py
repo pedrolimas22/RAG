@@ -53,13 +53,20 @@ except Exception as e:
     rag = None
 
 
-def ask_question(question: str, num_sources: int = 3) -> tuple[str, str]:
+def ask_question(
+    question: str, 
+    num_sources: int = 3,
+    use_multi_query: bool = False,
+    use_reranking: bool = False
+) -> tuple[str, str]:
     """
     Process a question and return the answer and sources.
     
     Args:
         question: The user's question
         num_sources: Number of source documents to retrieve
+        use_multi_query: Enable multi-query retrieval
+        use_reranking: Enable document reranking
         
     Returns:
         Tuple of (answer, sources_info)
@@ -73,6 +80,14 @@ def ask_question(question: str, num_sources: int = 3) -> tuple[str, str]:
     try:
         # Update config for this query
         rag.config.top_k = num_sources
+        rag.config.use_multi_query = use_multi_query
+        rag.config.use_reranking = use_reranking
+        
+        # Reinitialize query pipeline if advanced features changed
+        if use_multi_query or use_reranking:
+            rag.query_pipeline = None  # Force reinitialization
+            from src.rag_system.query import QueryPipeline
+            rag.query_pipeline = QueryPipeline(rag.config)
         
         # Get response
         response = rag.query(question, verbose=False)
@@ -93,21 +108,75 @@ def ask_question(question: str, num_sources: int = 3) -> tuple[str, str]:
         return f"❌ Error: {str(e)}", ""
 
 
-def ingest_file(file_path: str, clear_existing: bool) -> str:
-    """Ingest a document file."""
+def ingest_file(uploaded_file, file_path: str, clear_existing: bool) -> str:
+    """
+    Ingest a document file from upload or path.
+    
+    Args:
+        uploaded_file: File uploaded via Gradio File component (filepath string)
+        file_path: Path to file (alternative to upload)
+        clear_existing: Whether to clear existing documents
+        
+    Returns:
+        Status message
+    """
     if not initialized:
         return "❌ RAG system not initialized. Please check your API keys."
     
-    if not file_path or not Path(file_path).exists():
-        return "❌ Please provide a valid file path."
+    # Determine which input to use
+    target_file = None
+    source_type = None
+    
+    if uploaded_file is not None and uploaded_file:
+        # Gradio File component with type="filepath" returns a string path
+        target_file = str(uploaded_file)
+        source_type = "upload"
+        logger.info(f"Using uploaded file: {target_file}")
+        logger.info(f"File type: {type(uploaded_file)}, Value: {uploaded_file}")
+    elif file_path and file_path.strip():
+        # Use file path - resolve relative to project root
+        project_root = Path(__file__).parent.parent
+        target_path = Path(file_path)
+        source_type = "path"
+        
+        # Try as absolute path first
+        if target_path.is_absolute() and target_path.exists():
+            target_file = str(target_path)
+        # Try relative to project root
+        elif (project_root / target_path).exists():
+            target_file = str(project_root / target_path)
+        # Try relative to current directory
+        elif target_path.exists():
+            target_file = str(target_path)
+        else:
+            return f"❌ File not found: {file_path}\n\nTried:\n- {target_path}\n- {project_root / target_path}"
+    else:
+        return "❌ Please upload a file or enter a file path."
+    
+    # Verify file exists and check extension
+    target_path_obj = Path(target_file)
+    if not target_path_obj.exists():
+        return f"❌ File not found: {target_file}"
+    
+    # Check file extension
+    extension = target_path_obj.suffix.lower()
+    supported_extensions = ['.pdf', '.csv', '.txt', '.md']
+    if extension not in supported_extensions:
+        return f"❌ Unsupported file type: {extension}\n\nSupported: {', '.join(supported_extensions)}"
     
     try:
-        logger.info(f"Ingesting file: {file_path}")
-        num_chunks = rag.ingest(file_path, clear_existing=clear_existing)
-        return f"✅ Successfully ingested {num_chunks} chunks from {file_path}!"
+        logger.info(f"Ingesting {extension} file from {source_type}: {target_file}")
+        logger.info(f"File size: {target_path_obj.stat().st_size / 1024:.2f} KB")
+        
+        num_chunks = rag.ingest(target_file, clear_existing=clear_existing)
+        file_name = target_path_obj.name
+        
+        return f"✅ Successfully ingested **{num_chunks} chunks** from `{file_name}`!\n\n📁 File: `{target_file}`\n📄 Type: {extension}\n📊 Source: {source_type}"
     except Exception as e:
-        logger.error(f"Error ingesting file: {e}")
-        return f"❌ Error: {str(e)}"
+        logger.error(f"Error ingesting file: {e}", exc_info=True)
+        import traceback
+        error_details = traceback.format_exc()
+        return f"❌ Error ingesting {extension} file:\n\n```\n{str(e)}\n\nDetails:\n{error_details}\n```"
 
 
 # Create Gradio interface
@@ -139,6 +208,24 @@ with gr.Blocks(title="RAG Question Answering System", theme=gr.themes.Soft()) as
                     label="Number of Sources"
                 )
         
+        # Advanced retrieval options
+        with gr.Row():
+            gr.Markdown("### 🚀 Advanced Retrieval (Beta)")
+        
+        with gr.Row():
+            multi_query_checkbox = gr.Checkbox(
+                label="🔍 Multi-Query Retrieval",
+                value=False,
+                info="Generate multiple query variations for better coverage (slower)"
+            )
+            reranking_checkbox = gr.Checkbox(
+                label="📊 Rerank Results",
+                value=False,
+                info="Re-score documents by relevance (slower but higher quality)"
+            )
+        
+        gr.Markdown("*Note: Advanced features increase processing time but improve answer quality*")
+        
         ask_btn = gr.Button("Ask", variant="primary", size="lg")
         
         with gr.Row():
@@ -149,7 +236,7 @@ with gr.Blocks(title="RAG Question Answering System", theme=gr.themes.Soft()) as
         
         ask_btn.click(
             fn=ask_question,
-            inputs=[question_input, num_sources],
+            inputs=[question_input, num_sources, multi_query_checkbox, reranking_checkbox],
             outputs=[answer_output, sources_output]
         )
         
@@ -166,26 +253,52 @@ with gr.Blocks(title="RAG Question Answering System", theme=gr.themes.Soft()) as
     
     with gr.Tab("📤 Ingest Documents"):
         gr.Markdown("### Add documents to the RAG system")
+        gr.Markdown("Upload a file or enter a file path to ingest documents.")
         
-        file_path_input = gr.Textbox(
-            label="File Path",
-            placeholder="e.g., documents/Transactions.csv",
-            lines=1
-        )
+        with gr.Row():
+            with gr.Column():
+                gr.Markdown("**Option 1: Upload File**")
+                file_upload = gr.File(
+                    label="Upload Document",
+                    file_types=[".txt", ".csv", ".pdf", ".md"],
+                    type="filepath"
+                )
+                gr.Markdown("*Drag & drop or click to browse*")
+            
+            with gr.Column():
+                gr.Markdown("**Option 2: Enter File Path**")
+                file_path_input = gr.Textbox(
+                    label="File Path (relative to project root)",
+                    placeholder="e.g., documents/bitcoin.pdf",
+                    lines=1
+                )
+                gr.Markdown("*Use this for files already in the project*")
         
         clear_checkbox = gr.Checkbox(
             label="Clear existing documents before ingesting",
-            value=False
+            value=False,
+            info="⚠️ This will delete all previously ingested documents"
         )
         
-        ingest_btn = gr.Button("Ingest Document", variant="primary")
+        ingest_btn = gr.Button("Ingest Document", variant="primary", size="lg")
         ingest_output = gr.Markdown(label="Status")
         
         ingest_btn.click(
             fn=ingest_file,
-            inputs=[file_path_input, clear_checkbox],
+            inputs=[file_upload, file_path_input, clear_checkbox],
             outputs=ingest_output
         )
+        
+        # Examples
+        gr.Markdown("### 💡 Supported File Types")
+        gr.Markdown("""
+        - **PDF** (.pdf) - Bitcoin whitepaper, research papers, etc.
+        - **CSV** (.csv) - Transaction data, spreadsheets
+        - **Text** (.txt) - Plain text documents
+        - **Markdown** (.md) - Documentation files
+        
+        **Try uploading:** Drag and drop `documents/bitcoin.pdf` into the upload box above!
+        """)
     
     with gr.Tab("ℹ️ System Info"):
         if initialized:
@@ -205,7 +318,29 @@ with gr.Blocks(title="RAG Question Answering System", theme=gr.themes.Soft()) as
             - **Collection Name:** {config.collection_name}
             - **Top-K Results:** {config.top_k}
             
-            ### 💡 To Use Local LLM (M1/M2/M3):
+            ### � Advanced Retrieval Features (Beta)
+            
+            Enable in the "Ask Questions" tab for better results:
+            
+            **Multi-Query Retrieval:**
+            - Generates multiple query variations for better coverage
+            - Finds documents a single query might miss
+            - Trade-off: Slower (~3-4x LLM calls)
+            
+            **Document Reranking:**
+            - Re-scores documents by relevance after retrieval
+            - Returns only the most relevant content
+            - Trade-off: Slower (1 LLM call per document)
+            
+            **When to Use:**
+            - ✅ Complex questions needing comprehensive answers
+            - ✅ When quality matters more than speed
+            - ❌ Simple factual lookups
+            - ❌ Real-time/high-volume applications
+            
+            **Tip:** Use local LLM to reduce costs when using advanced features!
+            
+            ### �💡 To Use Local LLM (M1/M2/M3):
             
             1. Install Ollama: `brew install ollama`
             2. Start Ollama: `ollama serve`

@@ -64,14 +64,15 @@ class DocumentLoader:
         
         if extension == ".csv":
             return self._load_csv(file_path)
-        elif extension == ".txt":
+        elif extension in [".txt", ".md"]:
+            # Handle text and markdown files the same way
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
             return [Document(page_content=content, metadata={"source": file_path})]
         elif extension == ".pdf":
             return self._load_pdf(file_path)
         else:
-            raise ValueError(f"Unsupported file type: {extension}")
+            raise ValueError(f"Unsupported file type: {extension}. Supported types: .pdf, .csv, .txt, .md")
     
     def _load_csv(self, file_path: str) -> List[Document]:
         """Load CSV file."""

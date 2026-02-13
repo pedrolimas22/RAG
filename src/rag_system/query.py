@@ -10,6 +10,7 @@ from langchain_core.documents import Document
 from .config import RAGConfig
 from .vectorstore import VectorStoreManager
 from .local_llm import create_llm
+from .advanced_retrieval import AdvancedRetriever
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,22 @@ class QueryPipeline:
         self.llm = create_llm(config)  # Supports both OpenAI and local LLM
         self.output_parser = StrOutputParser()
         self._setup_prompt_template()
+        
+        # Initialize advanced retrieval if enabled
+        if config.use_multi_query or config.use_reranking:
+            logger.info("Advanced retrieval enabled: multi_query={}, reranking={}".format(
+                config.use_multi_query, config.use_reranking
+            ))
+            self.advanced_retriever = AdvancedRetriever(
+                vectorstore_manager=self.vectorstore_manager,
+                llm=self.llm,
+                use_multi_query=config.use_multi_query,
+                use_reranking=config.use_reranking,
+                num_queries=config.num_queries,
+                retrieval_k=config.retrieval_k
+            )
+        else:
+            self.advanced_retriever = None
     
     def _setup_prompt_template(self):
         """Create the prompt template for the RAG chain."""
@@ -60,15 +77,19 @@ Answer:"""
             logger.info("="*80)
         
         try:
-            # Step 1: Similarity search
+            # Step 1: Retrieve documents (basic or advanced)
             if verbose:
-                logger.info(f"\n[1/5] Performing similarity search...")
+                logger.info(f"\n[1/5] Retrieving relevant documents...")
                 logger.info(f"  Query: '{question}'")
             
-            results = self.vectorstore_manager.similarity_search(question)
+            # Use advanced retrieval if enabled, otherwise basic similarity search
+            if self.advanced_retriever:
+                results = self.advanced_retriever.retrieve(question, top_k=self.config.top_k)
+            else:
+                results = self.vectorstore_manager.similarity_search(question)
             
             if verbose:
-                logger.info(f"✓ Found {len(results)} relevant chunks")
+                logger.info(f"✓ Retrieved {len(results)} relevant chunks")
             
             # Step 2: Format context
             if verbose:
